@@ -1,0 +1,10 @@
+{
+  "tools": [
+    {
+      "name": "Tool_A",
+      "binary_path": "../dependencies/toolA_exec",
+      "command_template": "{binary_path} --base {base} --left {left} --right {right} --merge {output_dir}"
+    }
+  ],
+  "reference_name": "actual"
+}
