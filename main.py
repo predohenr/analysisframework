@@ -200,23 +200,11 @@ def main():
         tools_config = config['tools']
         ref_name = config.get('reference_name', 'actual')
     except Exception as e:
-        print(f"ERRO Config: {e}")
+        print(f"ERROR Config: {e}")
         return
 
-    # incremental results
-    processed_keys = set()
-    if os.path.exists(OUTPUT_FILE):
-        try:
-            df_existing = pd.read_csv(OUTPUT_FILE)
-            if 'project' in df_existing.columns and 'merge commit' in df_existing.columns:
-                for proj, commit in zip(df_existing['project'], df_existing['merge commit']):
-                    processed_keys.add(f"{proj}/{commit}")
-            print(f"🔄 Retomando: {len(processed_keys)} cenários já processados.")
-        except Exception:
-            print("ERROR: Invalid/Empty CSV")
-
     if not os.path.exists(SCENARIOS_DIR):
-        print(f"ERROR: Directory {SCENARIOS_DIR} not found.")
+        print(f"Directory {SCENARIOS_DIR} not found.")
         return
 
     # loop
@@ -229,13 +217,10 @@ def main():
 
         commits_list = sorted(os.listdir(project_path))
         
+        # loop commits
         for commit_hash in commits_list:
             scenario_path = os.path.join(project_path, commit_hash)
             if not os.path.isdir(scenario_path):
-                continue
-            
-            unique_key = f"{project_name}/{commit_hash}"
-            if unique_key in processed_keys:
                 continue
 
             print(f"PROCESSING: {project_name}/{commit_hash}...", end=" ", flush=True)
@@ -243,7 +228,7 @@ def main():
             times = {}
             detected_extension = ""
             
-            # execute tools
+            # run tools
             for tool in tools_config:
                 exec_time, success, ext = run_tool(scenario_path, tool)
                 times[tool['name']] = exec_time
@@ -253,7 +238,7 @@ def main():
                 if not success:
                     print(f"[TOOL {tool['name']} FAILED]", end=" ")
 
-            # analyse
+            # analyse and saves data
             if detected_extension:
                 try:
                     row_data = analyze_scenario(
@@ -268,8 +253,11 @@ def main():
                     
                     df_row = pd.DataFrame([row_data])
                     file_exists = os.path.exists(OUTPUT_FILE)
+                    
+                    # write to csv
                     df_row.to_csv(OUTPUT_FILE, mode='a', header=not file_exists, index=False)
                     print(f"ok!")
+                    
                 except Exception as e:
                     print(f"ANALYSIS ERROR: {e}")
             else:
