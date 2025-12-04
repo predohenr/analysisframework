@@ -1,0 +1,5 @@
+scenarios/*
+!scenarios/.gitkeep
+
+output/*
+!output/.gitkeep
