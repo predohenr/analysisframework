@@ -1,9 +1,9 @@
 {
   "tools": [
     {
-      "name": "Tool_A",
-      "binary_path": "../dependencies/toolA_exec",
-      "command_template": "{binary_path} --base {base} --left {left} --right {right} --merge {output_dir}"
+      "name": "Mergiraf-semi-c",
+      "binary_path": "dependencies/mergiraf-semi-c",
+      "command_template": "{binary_path} merge --semistructured=diff3 {base} {left} {right} -o {output_file}"
     }
   ],
   "reference_name": "actual"

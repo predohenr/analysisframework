@@ -18,10 +18,18 @@ def load_config(path):
         return json.load(f)
 
 def find_source_file(root_dir):
+    if not os.path.exists(root_dir):
+        return None
+
     files = [f for f in glob.glob(os.path.join(root_dir, '**'), recursive=True) if os.path.isfile(f)]
     files = [f for f in files if not os.path.basename(f).startswith('.')]
 
     if not files:
+        print(f"ERROR: No valid file in: {root_dir}")
+        try:
+            print(f"Folder content: {os.listdir(root_dir)}")
+        except:
+            pass
         return None
     
     return files[0]
@@ -62,7 +70,7 @@ def run_tool(scenario_path, tool_config):
     binary_path = tool_config['binary_path']
     command_template = tool_config['command_template']
 
-    # find revisions file recursively
+    # find revisions files recursively
     base_dir = os.path.join(scenario_path, 'base')
     left_dir = os.path.join(scenario_path, 'left')
     right_dir = os.path.join(scenario_path, 'right')
@@ -73,7 +81,12 @@ def run_tool(scenario_path, tool_config):
 
     # safety check
     if not all([base_file, left_file, right_file]):
-        print(f"ERROR: Revisions not found: {scenario_path}")
+        missing = []
+        if not base_file: missing.append("BASE")
+        if not left_file: missing.append("LEFT")
+        if not right_file: missing.append("RIGHT")
+        
+        print(f"  ERROR: {', '.join(missing)} missing")
         return -1, False, None
     
     # get extension
@@ -86,29 +99,34 @@ def run_tool(scenario_path, tool_config):
 
     os.makedirs(output_dir, exist_ok=True)
     
-    # O comando agora recebe os caminhos completos descobertos pelo glob
+    # glob paths
     command = command_template.format(
         binary_path=binary_path,
         base=base_file,
         left=left_file,
         right=right_file,
-        output_dir=output_dir
+        output_dir=output_dir,
+        output_file=output_file_path,
     )
 
     start_time = time.time()
     try:
-        subprocess.run(command, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        result = subprocess.run(command, shell=True, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         execution_time = (time.time() - start_time) * 1000
-        success = True
-    except subprocess.CalledProcessError:
-        execution_time = (time.time() - start_time) * 1000
-        success = False
-    except Exception:
+
+        if result.returncode in [0,1] and os.path.exists(output_file_path):
+            success = True
+        else:
+            print(f"  TOOL ERROR (Exit Code {e.returncode}): {e.stderr.decode().strip()}")
+            execution_time = -1
+            success = False
+
+    except Exception as e:
+        print(f"  PYTHON ERROR: {e}")
         execution_time = -1
         success = False
 
     return execution_time, success, file_extension
-
 # analysis
 
 def analyze_scenario(project_name, commit_hash, scenario_path, tools_config, ref_name, execution_times, file_extension):
@@ -256,7 +274,7 @@ def main():
                     
                     # write to csv
                     df_row.to_csv(OUTPUT_FILE, mode='a', header=not file_exists, index=False)
-                    print(f"ok!")
+                    print(f"DONE!")
                     
                 except Exception as e:
                     print(f"ANALYSIS ERROR: {e}")
