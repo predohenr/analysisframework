@@ -5,6 +5,7 @@ import time
 import glob
 from itertools import combinations
 import pandas as pd
+from datetime import datetime
 
 CONFIG_PATH = 'config/tools.json'
 PATH_PREFIX = os.getcwd() 
@@ -113,11 +114,12 @@ def run_tool(scenario_path, tool_config):
     try:
         result = subprocess.run(command, shell=True, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         execution_time = (time.time() - start_time) * 1000
+        execution_time = round(execution_time, 4)
 
         if result.returncode in [0,1] and os.path.exists(output_file_path):
             success = True
         else:
-            print(f"  TOOL ERROR (Exit Code {e.returncode}): {e.stderr.decode().strip()}")
+            print(f"  TOOL ERROR (Exit Code {result.returncode}): {result.stderr.decode().strip()}")
             execution_time = -1
             success = False
 
@@ -211,7 +213,13 @@ def analyze_scenario(project_name, commit_hash, scenario_path, tools_config, ref
     return results_row
 
 def main():
-    os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    run_folder = f"run_{timestamp}"
+    current_output_dir = os.path.join(PATH_PREFIX, 'output', run_folder)
+    os.makedirs(current_output_dir, exist_ok=True)
+
+    current_csv_file = os.path.join(current_output_dir, 'results.csv')
+    print(f"EXECUTION RESULTS SAVED IN: {current_output_dir}")
     
     try:
         config = load_config(CONFIG_PATH)
@@ -248,13 +256,24 @@ def main():
             
             # run tools
             for tool in tools_config:
-                exec_time, success, ext = run_tool(scenario_path, tool)
-                times[tool['name']] = exec_time
-                if success and ext:
-                    detected_extension = ext
-                
-                if not success:
-                    print(f"[TOOL {tool['name']} FAILED]", end=" ")
+                tool_name = tool['name']
+                valid_runs=[]
+
+                for i in range(10):
+                    exec_time, success, ext = run_tool(scenario_path, tool)
+                    if success:
+                        valid_runs.append(exec_time)
+                        if ext:
+                            detected_extension = ext
+                if valid_runs:
+                    if len(valid_runs)>1:
+                        valid_runs.pop(0)
+                    
+                    avg_time = sum(valid_runs)/len(valid_runs)
+                    times[tool_name] = round(avg_time, 4)
+                else:
+                    times[tool_name] = -1
+                    print(f"[TOOL {tool_name} FAILED 10x]", end=" ")
 
             # analyse and saves data
             if detected_extension:
@@ -270,10 +289,10 @@ def main():
                     )
                     
                     df_row = pd.DataFrame([row_data])
-                    file_exists = os.path.exists(OUTPUT_FILE)
+                    file_exists = os.path.exists(current_csv_file)
                     
                     # write to csv
-                    df_row.to_csv(OUTPUT_FILE, mode='a', header=not file_exists, index=False)
+                    df_row.to_csv(current_csv_file, mode='a', header=not file_exists, index=False)
                     print(f"DONE!")
                     
                 except Exception as e:

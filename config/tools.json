@@ -4,6 +4,11 @@
       "name": "Mergiraf-semi-c",
       "binary_path": "dependencies/mergiraf-semi-c",
       "command_template": "{binary_path} merge --semistructured=diff3 {base} {left} {right} -o {output_file}"
+    },
+    {
+      "name": "Mergiraf-semi-sc",
+      "binary_path": "dependencies/mergiraf-semi-sc",
+      "command_template": "{binary_path} merge --semistructured=diff3 {base} {left} {right} -o {output_file}"
     }
   ],
   "reference_name": "actual"
