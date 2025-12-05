@@ -3,6 +3,7 @@ import os
 import subprocess
 import time
 import glob
+import shutil
 from itertools import combinations
 import pandas as pd
 from datetime import datetime
@@ -66,47 +67,32 @@ def count_and_extract_conflicts(file_path):
         print(f"ERROR: File not found: {file_path}")
         return 0, "", []
 
-def run_tool(scenario_path, tool_config):
+def run_tool(tool_config, base_path, left_path, right_path, output_viz_dir):
     tool_name = tool_config['name']
     binary_path = tool_config['binary_path']
     command_template = tool_config['command_template']
 
-    # find revisions files recursively
-    base_dir = os.path.join(scenario_path, 'base')
-    left_dir = os.path.join(scenario_path, 'left')
-    right_dir = os.path.join(scenario_path, 'right')
+    if not os.path.isabs(binary_path):
+        binary_path = os.path.abspath(os.path.join(PATH_PREFIX, binary_path))
 
-    base_file = find_source_file(base_dir)
-    left_file = find_source_file(left_dir)
-    right_file = find_source_file(right_dir)
-
-    # safety check
-    if not all([base_file, left_file, right_file]):
-        missing = []
-        if not base_file: missing.append("BASE")
-        if not left_file: missing.append("LEFT")
-        if not right_file: missing.append("RIGHT")
-        
-        print(f"  ERROR: {', '.join(missing)} missing")
-        return -1, False, None
+    if not os.path.exists(binary_path):
+        print(f"  ERROR: Tool Binary not found: {binary_path}")
+        return -1, False
     
-    # get extension
-    _, file_extension = os.path.splitext(left_file)
+    tool_output_dir = os.path.join(output_viz_dir, tool_name)
+    os.makedirs(tool_output_dir, exist_ok=True)
 
-    # define merge file name
+    _, file_extension = os.path.splitext(left_path)
     output_filename = f"merge{file_extension}"
-    output_dir = os.path.join(scenario_path, tool_name)
-    output_file_path = os.path.join(output_dir, output_filename)
-
-    os.makedirs(output_dir, exist_ok=True)
+    output_file_path = os.path.join(tool_output_dir, output_filename)
     
     # glob paths
     command = command_template.format(
         binary_path=binary_path,
-        base=base_file,
-        left=left_file,
-        right=right_file,
-        output_dir=output_dir,
+        base=base_path,
+        left=left_path,
+        right=right_path,
+        output_dir=tool_output_dir,
         output_file=output_file_path,
     )
 
@@ -128,18 +114,18 @@ def run_tool(scenario_path, tool_config):
         execution_time = -1
         success = False
 
-    return execution_time, success, file_extension
+    return execution_time, success
 # analysis
 
-def analyze_scenario(project_name, commit_hash, scenario_path, tools_config, ref_name, execution_times, file_extension):
+def analyze_scenario(project_name, commit_hash, original_filename, output_viz_dir, tools_config, ref_name, execution_times, file_extension):
     all_results = {}
     tool_names = [t['name'] for t in tools_config]
     
     # try to find repository merge (ground truth)
-    child_dir = os.path.join(scenario_path, 'child')
-    ref_file_path = find_source_file(child_dir)
+    ref_filename = f"merge{file_extension}"
+    ref_file_path = os.path.join(output_viz_dir, ref_filename)
     
-    valid_ref = (ref_file_path is not None and os.path.exists(ref_file_path))
+    valid_ref = os.path.exists(ref_file_path)
     num_conflicts_ref, content_ref, conflicts_ref = count_and_extract_conflicts(ref_file_path)
     
     all_results[ref_name] = {
@@ -152,7 +138,7 @@ def analyze_scenario(project_name, commit_hash, scenario_path, tools_config, ref
     expected_output_name = f"merge{file_extension}"
 
     for tool_name in tool_names:
-        tool_output_path = os.path.join(scenario_path, tool_name, expected_output_name)
+        tool_output_path = os.path.join(output_viz_dir, tool_name, expected_output_name)
         
         # check if file exists
         valid_tool = os.path.exists(tool_output_path)
@@ -164,10 +150,6 @@ def analyze_scenario(project_name, commit_hash, scenario_path, tools_config, ref
             'conflict_blocks': conflicts,
             'valid': valid_tool
         }
-
-    # csv
-    base_file_found = find_source_file(os.path.join(scenario_path, 'base'))
-    original_filename = os.path.basename(base_file_found) if base_file_found else "unknown"
 
     results_row = {
         'project': project_name,
@@ -215,11 +197,14 @@ def analyze_scenario(project_name, commit_hash, scenario_path, tools_config, ref
 def main():
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     run_folder = f"run_{timestamp}"
-    current_output_dir = os.path.join(PATH_PREFIX, 'output', run_folder)
-    os.makedirs(current_output_dir, exist_ok=True)
 
-    current_csv_file = os.path.join(current_output_dir, 'results.csv')
-    print(f"EXECUTION RESULTS SAVED IN: {current_output_dir}")
+    current_output_root = os.path.join(PATH_PREFIX, 'output', run_folder)
+    current_scenarios_viz = os.path.join(current_output_root, 'scenarios')
+    current_csv_file = os.path.join(current_output_root, 'results.csv')
+
+    os.makedirs(current_scenarios_viz, exist_ok=True)
+
+    print(f"EXECUTION RESULTS SAVED IN: {current_output_root}")
     
     try:
         config = load_config(CONFIG_PATH)
@@ -245,14 +230,53 @@ def main():
         
         # loop commits
         for commit_hash in commits_list:
-            scenario_path = os.path.join(project_path, commit_hash)
-            if not os.path.isdir(scenario_path):
+            scenario_source_path = os.path.join(project_path, commit_hash)
+            if not os.path.isdir(scenario_source_path):
                 continue
 
             print(f"PROCESSING: {project_name}/{commit_hash}...", end=" ", flush=True)
 
+            base_dir = os.path.join(scenario_source_path, 'base')
+            left_dir = os.path.join(scenario_source_path, 'left')
+            right_dir = os.path.join(scenario_source_path, 'right')
+            child_dir = os.path.join(scenario_source_path, 'child')
+
+            base_file = find_source_file(base_dir)
+            left_file = find_source_file(left_dir)
+            right_file = find_source_file(right_dir)
+            child_file = find_source_file(child_dir)
+
+            if not all([base_file, left_file, right_file]):
+                missing = []
+                if not base_file: missing.append("BASE")
+                if not left_file: missing.append("LEFT")
+                if not right_file: missing.append("RIGHT")
+                print(f"ERROR: {', '.join(missing)} missing")
+                continue #skip this commit
+
+            original_filename = os.path.basename(base_file)
+            _, file_extension = os.path.splitext(original_filename)
+
+            scenario_viz_path = os.path.join(current_scenarios_viz, project_name, commit_hash, original_filename)
+            os.makedirs(scenario_viz_path, exist_ok=True)
+
+            try:
+                shutil.copy2(base_file, os.path.join(scenario_viz_path, f"base{file_extension}"))
+                shutil.copy2(left_file, os.path.join(scenario_viz_path, f"left{file_extension}"))
+                shutil.copy2(right_file, os.path.join(scenario_viz_path, f"right{file_extension}"))
+                
+                if child_file and os.path.exists(child_file):
+                    shutil.copy2(child_file, os.path.join(scenario_viz_path, f"merge{file_extension}"))
+            except Exception as e:
+                print(f"COPY ERROR: {e}")
+                continue
+
             times = {}
-            detected_extension = ""
+            detected_extension = file_extension
+
+            viz_base = os.path.join(scenario_viz_path, f"base{file_extension}")
+            viz_left = os.path.join(scenario_viz_path, f"left{file_extension}")
+            viz_right = os.path.join(scenario_viz_path, f"right{file_extension}")
             
             # run tools
             for tool in tools_config:
@@ -260,11 +284,11 @@ def main():
                 valid_runs=[]
 
                 for i in range(10):
-                    exec_time, success, ext = run_tool(scenario_path, tool)
+                    exec_time, success = run_tool(tool, viz_base, viz_left, viz_right, scenario_viz_path)
+                    
                     if success:
                         valid_runs.append(exec_time)
-                        if ext:
-                            detected_extension = ext
+                
                 if valid_runs:
                     if len(valid_runs)>1:
                         valid_runs.pop(0)
@@ -280,8 +304,9 @@ def main():
                 try:
                     row_data = analyze_scenario(
                         project_name, 
-                        commit_hash, 
-                        scenario_path, 
+                        commit_hash,
+                        original_filename,
+                        scenario_viz_path, 
                         tools_config, 
                         ref_name, 
                         times, 
