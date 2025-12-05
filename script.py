@@ -4,6 +4,7 @@ import subprocess
 import time
 import glob
 import shutil
+import random
 from itertools import combinations
 import pandas as pd
 from datetime import datetime
@@ -11,6 +12,7 @@ from datetime import datetime
 CONFIG_PATH = 'config/tools.json'
 PATH_PREFIX = os.getcwd() 
 SCENARIOS_DIR = os.path.join(PATH_PREFIX, 'scenarios')
+DATASET_DIR = os.path.join(PATH_PREFIX, 'dataset')
 OUTPUT_FILE = os.path.join(PATH_PREFIX, 'output', 'results.csv')
 
 # loading
@@ -194,7 +196,136 @@ def analyze_scenario(project_name, commit_hash, original_filename, output_viz_di
 
     return results_row
 
+def setup_experiment_environment():
+    print("\n---  EXPERIMENT SETUP ---")
+
+    # choose dataset
+    if not os.path.exists(DATASET_DIR):
+        print(f"ERROR: Folder '{DATASET_DIR}' not found")
+        return False
+
+    datasets = [d for d in os.listdir(DATASET_DIR) if os.path.isdir(os.path.join(DATASET_DIR, d))]
+    
+    if not datasets:
+        print("No dataset found in dataset/")
+        return False
+
+    print("Choose the dataset:")
+    for i, d in enumerate(datasets):
+        print(f"{i + 1} - {d}")
+    
+    try:
+        choice_idx = int(input("Option: ")) - 1
+        if 0 <= choice_idx < len(datasets):
+            selected_dataset = datasets[choice_idx]
+        else:
+            raise ValueError
+    except ValueError:
+        print("ERROR: Invalid Option. Aborting")
+        return False
+
+    # counting total scenarios in a specific dataset
+    source_scenarios_root = os.path.join(DATASET_DIR, selected_dataset, 'Resources', 'merge_scenarios')
+
+    if not os.path.exists(source_scenarios_root):
+        print(f"ERROR: Scenarios folder not found in: {source_scenarios_root}")
+        return False
+
+    all_available_scenarios = [] # Lista de tuplas: (ProjName, CommitHash, FullPath)
+    
+    projects = [p for p in os.listdir(source_scenarios_root) if os.path.isdir(os.path.join(source_scenarios_root, p))]
+    for proj in projects:
+        proj_path = os.path.join(source_scenarios_root, proj)
+        commits = [c for c in os.listdir(proj_path) if os.path.isdir(os.path.join(proj_path, c))]
+        for comm in commits:
+            full_path = os.path.join(proj_path, comm)
+            all_available_scenarios.append((proj, comm, full_path))
+
+    total_scenarios = len(all_available_scenarios)
+    print(f"{selected_dataset} chosen! ({total_scenarios} found)")
+
+    # choose quantity
+    print(f"\nChoose how many scenarios you wanna run the experiment on (max {total_scenarios} scenarios).")
+    print("Type -1 to use existing 'scenarios/' folder without changes.")
+
+    try:
+        user_input = input("Number: ")
+        num_to_run = int(user_input)
+    except ValueError:
+        print("Invalid input. Aborting.")
+        return False
+
+    # confirm message
+    confirm_msg = f"{num_to_run} random scenarios" if num_to_run != -1 else "existing scenarios folder"
+    
+    # validations
+    if num_to_run > total_scenarios:
+        print(f"WARNING: Chose {num_to_run} scenarios, but there are only {total_scenarios}. Using all of them.")
+        num_to_run = total_scenarios
+    if num_to_run < -1:
+        print("Number must be positive (or -1). Aborting.")
+        return False
+    
+    # seed
+    if num_to_run != -1:
+        seed_input = input("Enter seed for randomization (optional, press Enter for random): ")
+        if seed_input.strip():
+            try:
+                experiment_seed = int(seed_input)
+            except ValueError:
+                print("WARNING: Invalid seed. Using actual time.")
+                experiment_seed = int(time.time())
+        else:
+            experiment_seed = int(time.time())
+        
+        print(f"--> USING SEED: {experiment_seed}")
+        random.seed(experiment_seed)
+
+    confirm = input(f"\nConfirm run with {confirm_msg}? (y/n): ")
+    if confirm.lower() != 'y':
+        print("Aborted by user")
+        return False
+
+    # preparing execution
+    if num_to_run == -1:
+        print("Starting Experiment...\n")
+        return True
+    
+
+    # cleaning
+    print("Preparing Environment...")
+    if os.path.exists(SCENARIOS_DIR):
+        print("Deleting old 'scenarios/' folder...")
+        for item in os.listdir(SCENARIOS_DIR):
+            if item == ".gitkeep":
+                continue
+            item_path = os.path.join(SCENARIOS_DIR, item)
+            try:
+                if os.path.isfile(item_path) or os.path.islink(item_path):
+                    os.unlink(item_path)
+                elif os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+            except Exception as e:
+                print(f"Error deleting {item_path}: {e}")
+    
+    # random selection
+    selected_scenarios = random.sample(all_available_scenarios, num_to_run)
+    
+    # copy
+    print(f"Copying {num_to_run} random scenarios to '{SCENARIOS_DIR}'...")
+    for proj, comm, src_path in selected_scenarios:
+        dest_path = os.path.join(SCENARIOS_DIR, proj, comm)
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        shutil.copytree(src_path, dest_path)
+    
+    print("Environment ready!\n")
+    return True
+
 def main():
+    if not setup_experiment_environment():
+        print("Stopping script.")
+        return
+
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     run_folder = f"run_{timestamp}"
 
