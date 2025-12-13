@@ -207,13 +207,13 @@ def setup_experiment_environment():
     # choose dataset
     if not os.path.exists(DATASET_DIR):
         print(f"ERROR: Folder '{DATASET_DIR}' not found")
-        return False
+        return False, None
 
     datasets = [d for d in os.listdir(DATASET_DIR) if os.path.isdir(os.path.join(DATASET_DIR, d))]
     
     if not datasets:
         print("No dataset found in dataset/")
-        return False
+        return False, None
 
     print("Choose the dataset:")
     for i, d in enumerate(datasets):
@@ -227,14 +227,14 @@ def setup_experiment_environment():
             raise ValueError
     except ValueError:
         print("ERROR: Invalid Option. Aborting")
-        return False
+        return False, None
 
     # counting total scenarios in a specific dataset
     source_scenarios_root = os.path.join(DATASET_DIR, selected_dataset, 'Resources', 'merge_scenarios')
 
     if not os.path.exists(source_scenarios_root):
         print(f"ERROR: Scenarios folder not found in: {source_scenarios_root}")
-        return False
+        return False, None
 
     all_available_scenarios = [] # Lista de tuplas: (ProjName, CommitHash, FullPath)
     
@@ -258,7 +258,7 @@ def setup_experiment_environment():
         num_to_run = int(user_input)
     except ValueError:
         print("Invalid input. Aborting.")
-        return False
+        return False, None
 
     # confirm message
     confirm_msg = f"{num_to_run} random scenarios" if num_to_run != -1 else "existing scenarios folder"
@@ -269,7 +269,7 @@ def setup_experiment_environment():
         num_to_run = total_scenarios
     if num_to_run < -1:
         print("Number must be positive (or -1). Aborting.")
-        return False
+        return False, None
     
     # seed
     if num_to_run != -1:
@@ -289,13 +289,12 @@ def setup_experiment_environment():
     confirm = input(f"\nConfirm run with {confirm_msg}? (y/n): ")
     if confirm.lower() != 'y':
         print("Aborted by user")
-        return False
+        return False, None
 
-    # preparing execution
+    # preparing execution with existing scenarios
     if num_to_run == -1:
         print("Starting Experiment...\n")
-        return True
-    
+        return True, None
 
     # cleaning
     print("Preparing Environment...")
@@ -324,15 +323,21 @@ def setup_experiment_environment():
         shutil.copytree(src_path, dest_path)
     
     print("Environment ready!\n")
-    return True
+    return True, experiment_seed
 
 def main():
-    if not setup_experiment_environment():
+    setup_success, experiment_seed = setup_experiment_environment()
+
+    if not setup_success():
         print("Stopping script.")
         return
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    run_folder = f"run_{timestamp}"
+
+    if experiment_seed is not None:
+        run_folder = f"run_{timestamp}_seed-{experiment_seed}"
+    else:
+        run_folder = f"run_{timestamp}"
 
     current_output_root = os.path.join(PATH_PREFIX, 'output', run_folder)
     current_scenarios_viz = os.path.join(current_output_root, 'scenarios')
