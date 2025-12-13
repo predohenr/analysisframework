@@ -25,18 +25,18 @@ def find_source_file(root_dir):
     if not os.path.exists(root_dir):
         return None
 
-    files = [f for f in glob.glob(os.path.join(root_dir, '**'), recursive=True) if os.path.isfile(f)]
-    files = [f for f in files if not os.path.basename(f).startswith('.')]
+    for root, dirs, files in os.walk(root_dir):
+        for file in files:
+            if file.startswith('.'):
+                continue
+            return os.path.join(root, file)
 
-    if not files:
-        print(f"ERROR: No valid file in: {root_dir}")
-        try:
-            print(f"Folder content: {os.listdir(root_dir)}")
-        except:
-            pass
-        return None
-    
-    return files[0]
+    print(f"  [DEBUG] Nenhum arquivo valido em: {root_dir}")
+    try:
+        print(f"  [DEBUG] Conteudo da raiz: {os.listdir(root_dir)}")
+    except:
+        pass
+    return None
 
 def count_and_extract_conflicts(file_path):
     """counts and extracts conflict blocks"""
@@ -50,10 +50,13 @@ def count_and_extract_conflicts(file_path):
             content = f.read()
 
         for line in content.splitlines():
+            clean_line = line.strip()
+
             if line.startswith('<<<<<<<'):
                 num_conflicts += 1
                 in_conflict = True
                 current_block = [line]
+
             elif line.startswith('>>>>>>>'):
                 if in_conflict:
                     current_block.append(line)
@@ -61,10 +64,12 @@ def count_and_extract_conflicts(file_path):
                     conflict_blocks.append('\n'.join(current_block).strip())
                     in_conflict = False
                     current_block = []
+
             elif in_conflict:
                 current_block.append(line)
         
         return num_conflicts, content.strip(), conflict_blocks
+        
     except FileNotFoundError:
         print(f"ERROR: File not found: {file_path}")
         return 0, "", []
