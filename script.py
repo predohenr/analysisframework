@@ -328,7 +328,7 @@ def setup_experiment_environment():
 def main():
     setup_success, experiment_seed = setup_experiment_environment()
 
-    if not setup_success():
+    if not setup_success:
         print("Stopping script.")
         return
 
